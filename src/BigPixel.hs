@@ -14,7 +14,7 @@ fps = 60
 
 -- How many physical pixel per pixel art block?
 --
-pixelSize :: Point
+pixelSize :: (Int, Int)
 pixelSize = (10, 10)
 
 -- Number of blocks on the initial canvas of an empty canvas (if not specified on the command line)?
@@ -39,12 +39,15 @@ data State
 initialState :: State
 initialState
   = State
-    { canvas = listArray ((1, 1), initialCanvasSize) (repeat white)
+    { canvas = listArray ((0, 0), (maxX, maxY)) (repeat white)
     }
+  where
+    maxX = fst initialCanvasSize - 1
+    maxY = snd initialCanvasSize - 1
 
 
--- Drawing
--- -------
+-- UI presentation
+-- ---------------
 
 -- Determine an appropriate window size for the given application state.
 --
@@ -55,9 +58,26 @@ windowSize = canvasSize
 --
 canvasSize :: State -> Point
 canvasSize state
-  = (fromIntegral canvasWidth * fst pixelSize, fromIntegral canvasHeight * snd pixelSize)
+  = (fromIntegral (canvasWidth * fst pixelSize), fromIntegral (canvasHeight * snd pixelSize))
   where
     (canvasWidth, canvasHeight) = snd (bounds (canvas state))
+
+-- Convert window coordinates to a canvas index.
+--
+windowPosToCanvas :: State -> Point -> Maybe (Int, Int)
+windowPosToCanvas state (x, y)
+  |  x_shifted < 0 || x_shifted >= canvasWidth
+  || y_shifted < 0 || y_shifted >= canvasHeight
+  = Nothing
+  | otherwise
+  = Just (truncate x_shifted `div` fst pixelSize, truncate y_shifted `div` snd pixelSize)
+  where 
+    (canvasWidth, canvasHeight) = canvasSize state
+    halfCanvasWidth             = canvasWidth  / 2
+    halfCanvasHeight            = canvasHeight / 2
+    
+    x_shifted = x + halfCanvasWidth
+    y_shifted = y + halfCanvasHeight
 
 -- Turn the application state into a picture (one frame).
 --
@@ -71,10 +91,11 @@ drawCanvas state
                    , Color gridColor (rectangleWire width height)
                    ]
       where
-        x = (fromIntegral xPos - 0.5) * width  - (canvasWidth  / 2)
-        y = (fromIntegral yPos - 0.5) * height - (canvasHeight / 2)
+        x = (fromIntegral xPos + 0.5) * width  - (canvasWidth  / 2)
+        y = (fromIntegral yPos + 0.5) * height - (canvasHeight / 2)
   
-        (width      , height)       = pixelSize
+        width                       = fromIntegral (fst pixelSize)
+        height                      = fromIntegral (snd pixelSize)
         (canvasWidth, canvasHeight) = canvasSize state
 
 
@@ -83,8 +104,18 @@ drawCanvas state
 
 -- Process a single event.
 --
-handleEvent :: (Event -> state -> state)
+handleEvent :: Event -> State -> State
+handleEvent (EventKey (MouseButton LeftButton) Down mods mousePos) state
+  = draw (if shift mods == Up then black else white) mousePos state
 handleEvent event state = state
+
+-- Draw onto the canvas
+--
+draw :: Color -> Point -> State -> State
+draw col mousePos state
+  = case windowPosToCanvas state mousePos of
+      Nothing  -> state
+      Just idx -> state { canvas = canvas state // [(idx, col)]}
 
 
 -- Advance the application state
@@ -92,7 +123,7 @@ handleEvent event state = state
 
 -- Account for passing time.
 --
-stepState :: Float -> state -> state
+stepState :: Float -> State -> State
 stepState time state = state
 
 
