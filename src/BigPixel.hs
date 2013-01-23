@@ -10,16 +10,18 @@
 
 import Codec.BMP
 
-import Data.ByteString                  (ByteString, pack)
+import Data.ByteString                  (ByteString, pack, unpack)
 
 import Graphics.Gloss
 import Graphics.Gloss.Interface.IO.Game
 
+import Control.Exception as Exc
 import Control.Monad
 import Data.Array
 import Data.Word
 import System.Environment
 import System.Exit
+import System.IO.Error
 
 
 -- Constants
@@ -59,25 +61,28 @@ gridColor = makeColor 0.9 0.9 0.9 1
 -- Application state
 -- -----------------
 
+-- The colour grid that contains the drawing
+--
+type Canvas = Array (Int, Int) Color
+
+-- Entire state of the applications
+--
 data State
   = State
     { fname          :: FilePath                    -- name of the image file
-    , canvas         :: Array (Int, Int) Color      -- the image canvas
+    , canvas         :: Canvas                      -- the image canvas
     , dirty          :: Bool                        -- 'True' iff there are unsaved changes
     , timeSinceWrite :: Float                       -- seconds passed since last write to image file
     }
 
-initialState :: FilePath -> State
-initialState name
+initialState :: FilePath -> Canvas -> State
+initialState name initialCanvas
   = State
     { fname          = name
-    , canvas         = listArray ((0, 0), (maxX, maxY)) (repeat white)
+    , canvas         = initialCanvas
     , dirty          = False
     , timeSinceWrite = 0
     }
-  where
-    maxX = fst initialCanvasSize - 1
-    maxY = snd initialCanvasSize - 1
 
 
 -- UI presentation
@@ -172,6 +177,60 @@ drawWindow = return . drawCanvas
 -- Reading and writing of image files
 -- ----------------------------------
 
+-- Try to read the image file and to convert it to a canvas. If that fails yield an empty canvas.
+--
+readImageFile :: FilePath -> IO Canvas
+readImageFile fname
+  = do 
+    { result <- readBMP fname
+    ; case result of
+        Left err  -> do
+                     { putStrLn ("BigPixel: error reading '" ++ fname ++ "': " ++ show err)
+                     ; putStrLn "Delete the file if you want to replace it."
+                     ; exitFailure
+                     }
+        Right bmp -> do
+                     { let (bmpWidth, bmpHeight) = bmpDimensions bmp
+                           canvasWidth           = bmpWidth  `div` fst pixelSize
+                           canvasHeight          = bmpHeight `div` snd pixelSize
+                     ; unless (bmpWidth  `mod` fst pixelSize == 0 &&
+                               bmpHeight `mod` snd pixelSize == 0) $
+                       do 
+                       { putStrLn ("BigPixel: '" ++ fname ++ "' doesn't appear to be a BigPixel image")
+                       ; putStrLn ("Expected the image size to be a multiple of " ++ 
+                                   show (fst pixelSize) ++ "x" ++ show (snd pixelSize))
+                       }
+                     ; let stream  = unpack (unpackBMPToRGBA32 bmp)
+                           indices = [(i, j) | j <- [0..bmpHeight - 1], i <- [0..bmpWidth - 1]]
+                           image   = array ((0, 0), (bmpWidth - 1, bmpHeight - 1)) 
+                                       (zip indices [word8ToColor quad | quad <- quads stream])
+                     ; return $ listArray ((0, 0), (canvasWidth - 1, canvasHeight - 1))
+                                  [averageAt image (i, j) | i <- [0..canvasWidth  - 1]
+                                                          , j <- [0..canvasHeight - 1]]
+                     }
+    }
+    `Exc.catch` \exc ->
+    if isDoesNotExistErrorType (ioeGetErrorType exc)
+    then return $ listArray ((0, 0), (maxX, maxY)) (repeat white)
+    else do
+    { putStrLn ("BigPixel: error reading '" ++ fname ++ "': " ++ show exc)
+    ; putStrLn "Delete the file if you want to replace it."
+    ; exitFailure
+    }
+  where
+    maxX = fst initialCanvasSize - 1
+    maxY = snd initialCanvasSize - 1
+    
+    quads :: [a] -> [[a]]
+    quads []             = []
+    quads (x:y:z:v:rest) = [x, y, z, v] : quads rest
+    quads l              = [l]
+                       
+    averageAt image (i, j)
+      = foldl1 addColors [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
+                         | ioff <- [0..fst pixelSize - 1]
+                         , joff <- [0..snd pixelSize - 1]]
+
 -- Write the contents of the canvas to the image file.
 --
 writeImageFile :: State -> IO ()
@@ -201,6 +260,15 @@ colorToWord8 col
     [toWord8 red, toWord8 green, toWord8 blue, toWord8 alpha]
   where
     toWord8 = truncate . (* 255)
+
+-- Convert an RGBA value (quad of 'Word8's) for a BMP to a Gloss colour.
+--
+word8ToColor :: [Word8] -> Color
+word8ToColor [red, green, blue, alpha]
+  = makeColor (fromWord8 red) (fromWord8 green) (fromWord8 blue) (fromWord8 alpha)
+  where
+    fromWord8 = (/ 255) . fromIntegral
+word8ToColor arg = error ("word8ToColor: not a quad: " ++ show arg)
 
 
 -- Event handling
@@ -253,18 +321,23 @@ maybeWriteFile state
 main :: IO ()
 main
   = do
-      -- !!!FIXME: load file if it exists; otherwise, empty grid
-
-    {   -- Read the image file name from the command like arguments
+    {   -- Read the image file name from the command line arguments
     ; args <- getArgs
-    ; when (length args /= 1) $ 
-        do { putStrLn "BigPixel needs exactly one argument, the image file name"
-           ; exitFailure
-           }
+    ; when (length args /= 1) $ do
+        { putStrLn "BigPixel: need exactly one argument, the image file name with suffix '.bmp'"
+        ; exitFailure
+        }
     ; let [fname] = args
+    ; when (take 4 (reverse fname) /= reverse ".bmp") $ do
+        { putStrLn "BigPixel: image file must have suffix '.bmp'"
+        ; exitFailure
+        }
+    
+        -- Read the image from the given file, or yield an empty canvas
+    ; canvas <- readImageFile fname
     
         -- Initialise the application state
-    ; let state             = initialState fname
+    ; let state             = initialState fname canvas
           initialWindowSize = windowSize state
     
        -- Enter the event loop
