@@ -97,7 +97,7 @@ initialState name initialCanvas initialImage
     , dirty          = False
     , timeSinceWrite = 0
     , penDown        = Nothing
-    , colour         = white
+    , colour         = black
     }
 
 
@@ -128,15 +128,14 @@ paletteSize = (fromIntegral (16 * fst pixelSize), fromIntegral (16 * snd pixelSi
 
 -- Convert window coordinates to a canvas index.
 --
-windowPosToCanvas :: State -> Point -> Maybe (Int, Int)
-windowPosToCanvas state (x, y)
+windowPosToCanvas :: (Float, Float) -> Point -> Maybe (Int, Int)
+windowPosToCanvas (canvasWidth, canvasHeight) (x, y)
   |  x_shifted < 0 || x_shifted >= canvasWidth
   || y_shifted < 0 || y_shifted >= canvasHeight
   = Nothing
   | otherwise
   = Just (truncate x_shifted `div` fst pixelSize, truncate y_shifted `div` snd pixelSize)
   where 
-    (canvasWidth, canvasHeight) = canvasSize state
     halfCanvasWidth             = canvasWidth  / 2
     halfCanvasHeight            = canvasHeight / 2
     
@@ -183,17 +182,23 @@ drawPalette
   = Pictures (map drawPaletteBlock [(i, j) | i <- [0..15], j <- [0..15]])
   where
     drawPaletteBlock :: (Int, Int) -> Picture
-    drawPaletteBlock pos@(i, j)
-      = Translate x y $ Color col (rectangleSolid width height)
+    drawPaletteBlock pos
+      = Translate x y $ Color (paletteColour pos) (rectangleSolid width height)
       where
         (x, y) = canvasToWidgetPos paletteSize pos
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
-        col    = makeColor (red / 4) (green / 4) (blue / 4) ((5 - alpha) / 5)
-        red    = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (j `div` 8) `mod` 2
-        green  = fromIntegral $ ((i `div` 4) `mod` 2) * 2 + (j `div` 4) `mod` 2
-        blue   = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
-        alpha  = fromIntegral $ (i           `mod` 2) * 2 + j           `mod` 2
+
+-- Compute the colour of the palette at a particular index position.
+--
+paletteColour :: (Int, Int) -> Color
+paletteColour (i, j)
+  = makeColor (red / 4) (green / 4) (blue / 4) ((5 - alpha) / 5)
+  where
+    red    = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (j `div` 8) `mod` 2
+    green  = fromIntegral $ ((i `div` 4) `mod` 2) * 2 + (j `div` 4) `mod` 2
+    blue   = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
+    alpha  = fromIntegral $ (i           `mod` 2) * 2 + j           `mod` 2
 
 -- Draw a picture of the entire application window.
 --
@@ -272,9 +277,11 @@ readImageFile fname
     quads l              = [l]
                        
     averageAt image (i, j)
-      = foldl1 addColors [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
-                         | ioff <- [0..fst pixelSize - 1]
-                         , joff <- [0..snd pixelSize - 1]]
+      = image ! (i * fst pixelSize + fst pixelSize `div` 2, 
+                 j * snd pixelSize + snd pixelSize `div` 2)
+      -- = foldl1 addColors [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
+      --                    | ioff <- [0..fst pixelSize - 1]
+      --                    , joff <- [0..snd pixelSize - 1]]
 
 -- Write the contents of the canvas to the image file.
 --
@@ -325,21 +332,21 @@ word8ToColor arg = error ("word8ToColor: not a quad: " ++ show arg)
 --
 handleEvent :: Event -> State -> IO State
 handleEvent (EventKey (MouseButton LeftButton) Down mods mousePos) state
-  = let newState = state { penDown = Just (if shift mods == Up then black else white) }
+  = let newState = state { penDown = Just (if shift mods == Up then colour state else white) }
     in return $ draw mousePos newState
-handleEvent (EventKey (MouseButton LeftButton) Up _mods _mousePos) state
-  = return $ state {penDown = Nothing}
+handleEvent (EventKey (MouseButton LeftButton) Up _mods mousePos) state
+  = return $ selectColour mousePos (state {penDown = Nothing})
 handleEvent (EventMotion mousePos) state
   = return $ draw mousePos state
 handleEvent event state = return state
 
--- Draw onto the canvas.
+-- Draw onto the canvas if mouse position is within canvas boundaries.
 --
 -- NB: Does image conversion as well; i.e., only use once per frame in the current form.
 --
 draw :: Point -> State -> State
 draw mousePos (state@State { penDown = Just col })
-  = case windowPosToCanvas state mousePos of
+  = case windowPosToCanvas (canvasSize state) mousePos of
       Nothing  -> state
       Just idx -> let newCanvas = canvas state // [(idx, col)]
                   in
@@ -349,6 +356,23 @@ draw mousePos (state@State { penDown = Just col })
                         }
 draw _mousePos state
   = state
+
+-- Select a colour if mouse position is within palette boundaries.
+--
+selectColour :: Point -> State -> State
+selectColour mousePos state
+  = case windowPosToCanvas paletteSize adjustedMousePos of
+      Nothing  -> state
+      Just idx -> state { colour = rEMOVE_ALPHA (paletteColour idx) }
+  where
+    paletteOffset    = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
+    adjustedMousePos = (fst mousePos - paletteOffset, snd mousePos)
+    
+    -- !!!FIXME: as BMP writer doesn't deal with alpha correctly :(
+    rEMOVE_ALPHA col
+      = let (r, g, b, _a) = rgbaOfColor col
+        in
+        makeColor r g b 1
 
 
 -- Advance the application state
