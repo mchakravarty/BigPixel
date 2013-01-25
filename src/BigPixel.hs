@@ -52,6 +52,16 @@ initialCanvasSize = (16, 32)
 windowPadding :: Float
 windowPadding = 40
 
+-- Padding between window elements.
+--
+elementPadding :: Float
+elementPadding = 50
+
+-- The height of the colour indicator strip.
+--
+colourIndicatorHeight :: Float
+colourIndicatorHeight = fromIntegral (fst pixelSize) * 2
+
 -- The colour of the grid lines.
 --
 gridColor :: Color
@@ -71,17 +81,23 @@ data State
   = State
     { fname          :: FilePath                    -- name of the image file
     , canvas         :: Canvas                      -- the image canvas
+    , image          :: BMP                         -- BMP image version of the canvas
     , dirty          :: Bool                        -- 'True' iff there are unsaved changes
     , timeSinceWrite :: Float                       -- seconds passed since last write to image file
+    , penDown        :: Maybe Color                 -- 'Just col' iff pen down with the given color
+    , colour         :: Color                       -- colour of the pen
     }
 
-initialState :: FilePath -> Canvas -> State
-initialState name initialCanvas
+initialState :: FilePath -> Canvas -> BMP -> State
+initialState name initialCanvas initialImage
   = State
     { fname          = name
     , canvas         = initialCanvas
+    , image          = initialImage
     , dirty          = False
     , timeSinceWrite = 0
+    , penDown        = Nothing
+    , colour         = white
     }
 
 
@@ -92,7 +108,7 @@ initialState name initialCanvas
 --
 windowSize :: State -> Point
 windowSize state 
-  = (canvasX + 2 * windowPadding, canvasY + 2 * windowPadding)
+  = (3 *  canvasX + 2 * windowPadding + 2 * elementPadding, canvasY + 2 * windowPadding)
   where
     (canvasX, canvasY) = canvasSize state
 
@@ -100,9 +116,15 @@ windowSize state
 --
 canvasSize :: State -> Point
 canvasSize state
-  = (fromIntegral ((canvasWidth + 1) * fst pixelSize), fromIntegral ((canvasHeight + 1) * snd pixelSize))
+  = (fromIntegral ((canvasWidth + 1) * fst pixelSize), 
+     fromIntegral ((canvasHeight + 1) * snd pixelSize))
   where
     (canvasWidth, canvasHeight) = snd (bounds (canvas state))
+
+-- Size of the palette in physical pixel.
+--
+paletteSize :: Point
+paletteSize = (fromIntegral (16 * fst pixelSize), fromIntegral (16 * snd pixelSize))
 
 -- Convert window coordinates to a canvas index.
 --
@@ -130,10 +152,10 @@ canvasToWidgetPos (canvasWidth, canvasHeight) (i, j)
     x = (fromIntegral i + 0.5) * width  - (canvasWidth  / 2)
     y = (fromIntegral j + 0.5) * height - (canvasHeight / 2)
     
-    width                       = fromIntegral (fst pixelSize)
-    height                      = fromIntegral (snd pixelSize)
+    width  = fromIntegral (fst pixelSize)
+    height = fromIntegral (snd pixelSize)
 
--- Turn the application state into a picture (one frame).
+-- Turn the canvas in the application state into a picture (one frame).
 --
 drawCanvas :: State -> Picture
 drawCanvas state
@@ -149,6 +171,11 @@ drawCanvas state
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
 
+-- Turn the image in the application state into a picture (one frame).
+--
+drawImage :: State -> Picture
+drawImage = bitmapOfBMP . image
+
 -- Produce the picture of the colour palette.
 --
 drawPalette :: Picture
@@ -159,7 +186,7 @@ drawPalette
     drawPaletteBlock pos@(i, j)
       = Translate x y $ Color col (rectangleSolid width height)
       where
-        (x, y) = canvasToWidgetPos (16, 16) pos
+        (x, y) = canvasToWidgetPos paletteSize pos
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
         col    = makeColor (red / 4) (green / 4) (blue / 4) ((5 - alpha) / 5)
@@ -171,7 +198,23 @@ drawPalette
 -- Draw a picture of the entire application window.
 --
 drawWindow :: State -> IO Picture
-drawWindow = return . drawCanvas
+drawWindow state 
+  = return $ Pictures
+             [ drawCanvas state
+             -- , Translate (-imageOffset) 0 (drawImage state)
+             , Translate paletteOffset 0               drawPalette
+             , Translate paletteOffset (-colourOffset) colourIndicator
+             ]
+  where
+    imageOffset   = elementPadding + fst (canvasSize state) / 2 +
+                    fromIntegral (fst (bmpDimensions (image state))) / 2
+    paletteOffset = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
+    colourOffset  = 2 * colourIndicatorHeight + snd paletteSize / 2
+    
+    colourIndicator = Pictures
+                      [ Color (colour state) (rectangleSolid (fst paletteSize) colourIndicatorHeight)
+                      , Color gridColor      (rectangleWire  (fst paletteSize) colourIndicatorHeight)
+                      ]
 
 
 -- Reading and writing of image files
@@ -179,7 +222,7 @@ drawWindow = return . drawCanvas
 
 -- Try to read the image file and to convert it to a canvas. If that fails yield an empty canvas.
 --
-readImageFile :: FilePath -> IO Canvas
+readImageFile :: FilePath -> IO (Canvas, BMP)
 readImageFile fname
   = do 
     { result <- readBMP fname
@@ -204,22 +247,24 @@ readImageFile fname
                            indices = [(i, j) | j <- [0..bmpHeight - 1], i <- [0..bmpWidth - 1]]
                            image   = array ((0, 0), (bmpWidth - 1, bmpHeight - 1)) 
                                        (zip indices [word8ToColor quad | quad <- quads stream])
-                     ; return $ listArray ((0, 0), (canvasWidth - 1, canvasHeight - 1))
-                                  [averageAt image (i, j) | i <- [0..canvasWidth  - 1]
-                                                          , j <- [0..canvasHeight - 1]]
+                           canvas0 = listArray ((0, 0), (canvasWidth - 1, canvasHeight - 1))
+                                       [averageAt image (i, j) | i <- [0..canvasWidth  - 1]
+                                                               , j <- [0..canvasHeight - 1]]
+                     ; return (canvas0, bmp)
                      }
     }
     `Exc.catch` \exc ->
     if isDoesNotExistErrorType (ioeGetErrorType exc)
-    then return $ listArray ((0, 0), (maxX, maxY)) (repeat white)
+    then return (emptyCanvas, canvasToImage emptyCanvas)
     else do
     { putStrLn ("BigPixel: error reading '" ++ fname ++ "': " ++ show exc)
     ; putStrLn "Delete the file if you want to replace it."
     ; exitFailure
     }
   where
-    maxX = fst initialCanvasSize - 1
-    maxY = snd initialCanvasSize - 1
+    maxX        = fst initialCanvasSize - 1
+    maxY        = snd initialCanvasSize - 1
+    emptyCanvas = listArray ((0, 0), (maxX, maxY)) (repeat white)
     
     quads :: [a] -> [[a]]
     quads []             = []
@@ -235,10 +280,12 @@ readImageFile fname
 --
 writeImageFile :: State -> IO ()
 writeImageFile state
-  = writeBMP (fname state) (makeBMP (canvas state))
+  = writeBMP (fname state) (canvasToImage (canvas state))
 
-makeBMP :: Array (Int, Int) Color -> BMP
-makeBMP canvas
+-- Convert a canvas array into a BMP image file.
+--
+canvasToImage :: Array (Int, Int) Color -> BMP
+canvasToImage canvas
   = packRGBA32ToBMP imageWidth imageHeight $
       pack (concat [ colorToWord8 (canvas!(x `div` fst pixelSize, y `div` snd pixelSize)) 
                    | y <- [0..imageHeight - 1], x <- [0..imageWidth - 1]])
@@ -278,18 +325,30 @@ word8ToColor arg = error ("word8ToColor: not a quad: " ++ show arg)
 --
 handleEvent :: Event -> State -> IO State
 handleEvent (EventKey (MouseButton LeftButton) Down mods mousePos) state
-  = return $ draw (if shift mods == Up then black else white) mousePos state
+  = let newState = state { penDown = Just (if shift mods == Up then black else white) }
+    in return $ draw mousePos newState
+handleEvent (EventKey (MouseButton LeftButton) Up _mods _mousePos) state
+  = return $ state {penDown = Nothing}
+handleEvent (EventMotion mousePos) state
+  = return $ draw mousePos state
 handleEvent event state = return state
 
--- Draw onto the canvas
+-- Draw onto the canvas.
 --
-draw :: Color -> Point -> State -> State
-draw col mousePos state
+-- NB: Does image conversion as well; i.e., only use once per frame in the current form.
+--
+draw :: Point -> State -> State
+draw mousePos (state@State { penDown = Just col })
   = case windowPosToCanvas state mousePos of
       Nothing  -> state
-      Just idx -> state { canvas = canvas state // [(idx, col)] 
+      Just idx -> let newCanvas = canvas state // [(idx, col)]
+                  in
+                  state { canvas = newCanvas
+                        -- , image  = canvasToImage newCanvas
                         , dirty  = True
                         }
+draw _mousePos state
+  = state
 
 
 -- Advance the application state
@@ -334,10 +393,10 @@ main
         }
     
         -- Read the image from the given file, or yield an empty canvas
-    ; canvas <- readImageFile fname
+    ; (canvas, image) <- readImageFile fname
     
         -- Initialise the application state
-    ; let state             = initialState fname canvas
+    ; let state             = initialState fname canvas image
           initialWindowSize = windowSize state
     
        -- Enter the event loop

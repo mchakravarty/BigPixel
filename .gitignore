@@ -1,3 +1,4 @@
 *.hi
 *.o
 BigPixel
+.DS_Store
