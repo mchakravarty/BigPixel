@@ -193,12 +193,14 @@ drawPalette
 --
 paletteColour :: (Int, Int) -> Color
 paletteColour (i, j)
-  = makeColor (red / 4) (green / 4) (blue / 4) ((5 - alpha) / 5)
+  = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) 1
   where
-    red    = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (j `div` 8) `mod` 2
-    green  = fromIntegral $ ((i `div` 4) `mod` 2) * 2 + (j `div` 4) `mod` 2
-    blue   = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
-    alpha  = fromIntegral $ (i           `mod` 2) * 2 + j           `mod` 2
+    red        = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (j `div` 8) `mod` 2
+    green      = fromIntegral $ ((i `div` 4) `mod` 2) * 2 + (j `div` 4) `mod` 2
+    blue       = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
+    brightness = fromIntegral $ (i           `mod` 2) * 2 + j           `mod` 2
+
+    scale x = x * 25 + (25 / 3) * brightness
 
 -- Draw a picture of the entire application window.
 --
@@ -363,17 +365,11 @@ selectColour :: Point -> State -> State
 selectColour mousePos state
   = case windowPosToCanvas paletteSize adjustedMousePos of
       Nothing  -> state
-      Just idx -> state { colour = rEMOVE_ALPHA (paletteColour idx) }
+      Just idx -> state { colour = paletteColour idx }
   where
     paletteOffset    = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
     adjustedMousePos = (fst mousePos - paletteOffset, snd mousePos)
     
-    -- !!!FIXME: as BMP writer doesn't deal with alpha correctly :(
-    rEMOVE_ALPHA col
-      = let (r, g, b, _a) = rgbaOfColor col
-        in
-        makeColor r g b 1
-
 
 -- Advance the application state
 -- -----------------------------
