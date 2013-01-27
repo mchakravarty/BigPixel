@@ -6,7 +6,18 @@
 -- Maintainer  : Manuel M T Chakravarty <chak@cse.unsw.edu.au>
 -- Stability   : experimental
 -- Portability : haskell2011
-
+--
+-- /Usage/
+--
+-- Provide the filename as the single command line argument.
+--
+-- Left mouse button          — draw with current colour
+-- Left mouse button + Shift  — erase
+-- Right mouse button         — erase
+-- 'W', 'S', 'A', 'D'         - enlarge canvas to the top, bottom, left, and right, respectively
+-- 'W', 'S', 'A', 'D' + Shift - shrink canvas from the top, bottom, left, and right, respectively
+--
+-- Canvas changes are automatically saved.
 
 import Codec.BMP
 
@@ -75,12 +86,17 @@ gridColor = makeColor 0.9 0.9 0.9 1
 --
 type Canvas = Array (Int, Int) Color
 
+-- The subarea of the canvas currently in use.
+--
+type Area = ((Int, Int), (Int, Int))
+
 -- Entire state of the applications
 --
 data State
   = State
     { fname          :: FilePath                    -- name of the image file
     , canvas         :: Canvas                      -- the image canvas
+    , area           :: Area                        -- range of indices of the canvas used
     , image          :: BMP                         -- BMP image version of the canvas
     , dirty          :: Bool                        -- 'True' iff there are unsaved changes
     , timeSinceWrite :: Float                       -- seconds passed since last write to image file
@@ -93,12 +109,41 @@ initialState name initialCanvas initialImage
   = State
     { fname          = name
     , canvas         = initialCanvas
+    , area           = bounds initialCanvas
     , image          = initialImage
     , dirty          = False
     , timeSinceWrite = 0
     , penDown        = Nothing
     , colour         = black
     }
+
+-- Yield the width and height of an area.
+--
+areaSize :: Area -> (Int, Int)
+areaSize ((minX, minY), (maxX, maxY))
+  = (maxX - minX + 1, maxY - minY + 1)    
+
+-- Check whether one area is completely contained in another.
+--
+containedWithin :: Area -> Area -> Bool
+((minX1, minY1), (maxX1, maxY1)) `containedWithin` ((minX2, minY2), (maxX2, maxY2))
+  = minX1 >= minX2 && minY1 >= minY2 && maxX1 <= maxX2 && maxY1 <= maxY2
+
+-- Compute the smallest area containing the two given ones.
+--
+unionArea :: Area -> Area -> Area
+((minX1, minY1), (maxX1, maxY1)) `unionArea` ((minX2, minY2), (maxX2, maxY2))
+  = ((minX1 `min` minX2, minY1 `min` minY2), (maxX1 `max` maxX2, maxY1 `max` maxY2))
+
+-- Vector addition
+--
+vplus :: (Int, Int) -> (Int, Int) -> (Int, Int)
+(i, j) `vplus` (k, l) = (i + k, j + l)    
+
+-- Vector subtraction
+--
+vminus :: (Int, Int) -> (Int, Int) -> (Int, Int)
+(i, j) `vminus` (k, l) = (i - k, j - l)    
 
 
 -- UI presentation
@@ -108,18 +153,20 @@ initialState name initialCanvas initialImage
 --
 windowSize :: State -> Point
 windowSize state 
-  = (3 *  canvasX + 2 * windowPadding + 2 * elementPadding, canvasY + 2 * windowPadding)
+  = (2 * (canvasW + paletteW) + 2 * windowPadding + 2 * elementPadding, 
+     (20 + 1.5 * canvasH + 2 * windowPadding) `max` (1.5 * paletteH + 2 * windowPadding))
   where
-    (canvasX, canvasY) = canvasSize state
+    (canvasW,  canvasH)  = canvasSize state
+    (paletteW, paletteH) = paletteSize
 
 -- Size of the canvas in physical pixel.
 --
 canvasSize :: State -> Point
 canvasSize state
-  = (fromIntegral ((canvasWidth + 1) * fst pixelSize), 
-     fromIntegral ((canvasHeight + 1) * snd pixelSize))
+  = (fromIntegral (width  * fst pixelSize),
+     fromIntegral (height * snd pixelSize))
   where
-    (canvasWidth, canvasHeight) = snd (bounds (canvas state))
+    (width, height) = areaSize (area state)
 
 -- Size of the palette in physical pixel.
 --
@@ -158,7 +205,10 @@ canvasToWidgetPos (canvasWidth, canvasHeight) (i, j)
 --
 drawCanvas :: State -> Picture
 drawCanvas state
-  = Pictures (map drawPixelBlock (assocs (canvas state)))
+  = let (start, end) = area state
+    in
+    Pictures $
+      map drawPixelBlock [(pos `vminus` start, canvas state!pos) | pos <- range (start, end)]
   where
     drawPixelBlock (pos, color) 
       = Translate x y $
@@ -208,6 +258,8 @@ drawWindow :: State -> IO Picture
 drawWindow state 
   = return $ Pictures
              [ drawCanvas state
+             , Translate (-40)         sizeOffset      canvasSizeText
+                        -- ^^FIXME: Gloss doesn't seem to center text :(
              -- , Translate (-imageOffset) 0 (drawImage state)
              , Translate paletteOffset 0               drawPalette
              , Translate paletteOffset (-colourOffset) colourIndicator
@@ -217,11 +269,16 @@ drawWindow state
                     fromIntegral (fst (bmpDimensions (image state))) / 2
     paletteOffset = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
     colourOffset  = 2 * colourIndicatorHeight + snd paletteSize / 2
+    sizeOffset    = snd (canvasSize state) / 2 + 20
     
     colourIndicator = Pictures
                       [ Color (colour state) (rectangleSolid (fst paletteSize) colourIndicatorHeight)
                       , Color gridColor      (rectangleWire  (fst paletteSize) colourIndicatorHeight)
                       ]
+                      
+    canvasSizeText = let (width, height) = areaSize (area state)
+                     in
+                     Scale 0.2 0.2 (Text (show width ++ "x" ++ show height))
 
 
 -- Reading and writing of image files
@@ -262,7 +319,7 @@ readImageFile fname
     }
     `Exc.catch` \exc ->
     if isDoesNotExistErrorType (ioeGetErrorType exc)
-    then return (emptyCanvas, canvasToImage emptyCanvas)
+    then return (emptyCanvas, canvasToImage emptyCanvas (bounds emptyCanvas))
     else do
     { putStrLn ("BigPixel: error reading '" ++ fname ++ "': " ++ show exc)
     ; putStrLn "Delete the file if you want to replace it."
@@ -289,20 +346,19 @@ readImageFile fname
 --
 writeImageFile :: State -> IO ()
 writeImageFile state
-  = writeBMP (fname state) (canvasToImage (canvas state))
+  = writeBMP (fname state) (canvasToImage (canvas state) (area state))
 
--- Convert a canvas array into a BMP image file.
+-- Convert the specified area of a canvas array into a BMP image file.
 --
-canvasToImage :: Array (Int, Int) Color -> BMP
-canvasToImage canvas
+canvasToImage :: Array (Int, Int) Color -> Area -> BMP
+canvasToImage canvas area
   = packRGBA32ToBMP imageWidth imageHeight $
-      pack (concat [ colorToWord8 (canvas!(x `div` fst pixelSize, y `div` snd pixelSize)) 
+      pack (concat [ colorToWord8 (canvas!(minX + x `div` fst pixelSize, 
+                                           minY + y `div` snd pixelSize)) 
                    | y <- [0..imageHeight - 1], x <- [0..imageWidth - 1]])
   where
-    (_, (maxX, maxY)) = bounds canvas
-
-    canvasWidth       = maxX + 1
-    canvasHeight      = maxY + 1
+    (canvasWidth, canvasHeight) = areaSize area
+    ((minX, minY), _)           = area
     
     imageWidth        = canvasWidth  * fst pixelSize
     imageHeight       = canvasHeight * snd pixelSize
@@ -333,13 +389,38 @@ word8ToColor arg = error ("word8ToColor: not a quad: " ++ show arg)
 -- Process a single event.
 --
 handleEvent :: Event -> State -> IO State
+
+  -- Drawing and colour selection
 handleEvent (EventKey (MouseButton LeftButton) Down mods mousePos) state
   = let newState = state { penDown = Just (if shift mods == Up then colour state else white) }
+    in return $ draw mousePos newState
+handleEvent (EventKey (MouseButton RightButton) Down mods mousePos) state
+  = let newState = state { penDown = Just white }
     in return $ draw mousePos newState
 handleEvent (EventKey (MouseButton LeftButton) Up _mods mousePos) state
   = return $ selectColour mousePos (state {penDown = Nothing})
 handleEvent (EventMotion mousePos) state
   = return $ draw mousePos state
+
+  -- Alter canvas size
+handleEvent (EventKey (Char 'w') Down mods _mousePos) state
+  = return $ resize ((0, 0), (0, 1)) state
+handleEvent (EventKey (Char 'W') Down mods _mousePos) state
+  = return $ resize ((0, 0), (0, -1)) state
+handleEvent (EventKey (Char 's') Down mods _mousePos) state
+  = return $ resize ((0, -1), (0, 0)) state
+handleEvent (EventKey (Char 'S') Down mods _mousePos) state
+  = return $ resize ((0, 1), (0, 0)) state
+handleEvent (EventKey (Char 'a') Down mods _mousePos) state
+  = return $ resize ((-1, 0), (0, 0)) state
+handleEvent (EventKey (Char 'A') Down mods _mousePos) state
+  = return $ resize ((1, 0), (0, 0)) state
+handleEvent (EventKey (Char 'd') Down mods _mousePos) state
+  = return $ resize ((0, 0), (1, 0)) state
+handleEvent (EventKey (Char 'D') Down mods _mousePos) state
+  = return $ resize ((0, 0), (-1, 0)) state
+
+  -- Unhandled event
 handleEvent event state = return state
 
 -- Draw onto the canvas if mouse position is within canvas boundaries.
@@ -350,10 +431,11 @@ draw :: Point -> State -> State
 draw mousePos (state@State { penDown = Just col })
   = case windowPosToCanvas (canvasSize state) mousePos of
       Nothing  -> state
-      Just idx -> let newCanvas = canvas state // [(idx, col)]
+      Just idx -> let base      = fst (area state)
+                      newCanvas = canvas state // [(base `vplus` idx, col)]
                   in
                   state { canvas = newCanvas
-                        -- , image  = canvasToImage newCanvas
+                        -- , image  = canvasToImage newCanvas ??
                         , dirty  = True
                         }
 draw _mousePos state
@@ -369,7 +451,36 @@ selectColour mousePos state
   where
     paletteOffset    = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
     adjustedMousePos = (fst mousePos - paletteOffset, snd mousePos)
+
+-- Resize the used canvas area.
+--
+-- We only change the actual canvas array if it needs to grow beyond its current size. If it,
+-- shrinks, we leave it as it is to enable undoing the shrinking by growing it again.
+--
+resize :: Area -> State -> State
+resize ((dminX, dminY), (dmaxX, dmaxY)) state
+  | newWidth >= 2 && newHeight >= 2
+  = state { canvas = newCanvas, area = newArea, dirty  = True }
+  | otherwise
+  = state
+  where
+    ((minX, minY), (maxX, maxY)) = area state
+    (width,    height)           = areaSize (area state)
+    (newWidth, newHeight)        = areaSize newArea
+    canvasArea                   = bounds (canvas state)
     
+    newArea       = ((minX + dminX, minY + dminY), (maxX + dmaxX, maxY + dmaxY))
+    newCanvasArea = canvasArea `unionArea` newArea
+
+    newCanvas
+      | newArea `containedWithin` canvasArea
+      = canvas state
+      | otherwise
+      = array newCanvasArea [ (pos, if inRange canvasArea pos 
+                                    then canvas state ! pos 
+                                    else white)
+                            | pos <- range newCanvasArea]
+
 
 -- Advance the application state
 -- -----------------------------
