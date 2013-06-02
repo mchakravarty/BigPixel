@@ -179,6 +179,11 @@ canvasSize state
 paletteSize :: Point
 paletteSize = (fromIntegral (16 * fst pixelSize), fromIntegral (16 * snd pixelSize))
 
+-- Size of the transparency picker in physical pixel.
+--
+pickerSize :: Point
+pickerSize = (fromIntegral (16 * fst pixelSize), fromIntegral (snd pixelSize))
+
 -- Convert window coordinates to a canvas index.
 --
 windowPosToCanvas :: (Float, Float) -> Point -> Maybe (Int, Int)
@@ -254,22 +259,28 @@ drawTransparency col
   where
     drawTransparencyBlock :: Int -> Picture
     drawTransparencyBlock i
-      = Translate x 0 $ Color (transparencyColour col i) (rectangleSolid width height)
+      = Translate x 0 $ 
+          Pictures [rectangleChecker width height
+                   , Color (transparencyColour col i) (rectangleSolid width height)
+                   ]
       where
         (x, _) = canvasToWidgetPos paletteSize (i, 0)
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
 
--- Draw a checker rectangle.
+-- Draw a checker rectangle with a wire frame.
 --
 -- Width and height must be divisible by 2.
 --
 rectangleChecker :: Float -> Float -> Picture
 rectangleChecker width height
-  = Pictures [ Translate (-w4) (-h4) $ Color (gridColor) (rectangleSolid w2 h2)
-             , Translate (-w4) ( h4) $ Color white (rectangleSolid w2 h2)
-             , Translate ( w4) (-h4) $ Color white (rectangleSolid w2 h2)
-             , Translate ( w4) ( h4) $ Color (gridColor) (rectangleSolid w2 h2)
+  = Pictures [ Translate (-w4) (-h4) $ Color (greyN 0.7) (rectangleSolid w2 h2)
+             , Translate (-w4) ( h4) $ Color white       (rectangleSolid w2 h2)
+             , Translate ( w4) (-h4) $ Color white       (rectangleSolid w2 h2)
+             , Translate ( w4) ( h4) $ Color (greyN 0.7) (rectangleSolid w2 h2)
+             , Translate 0     0     $ Color gridColor (Line [(0, -h2), (0, h2)])
+             , Translate 0     0     $ Color gridColor (Line [(-h2, 0), (h2, 0)])
+             , Translate 0     0     $ Color gridColor (rectangleWire width height)
              ]
   where
     w2 = width  / 2
@@ -290,13 +301,22 @@ paletteColour (i, j)
 
     scale x = x * 25 + (25 / 3) * brightness
 
+-- Compute the colour of the palette at a particular index position, but use the transparency of the given colour.
+--
+paletteColourWithTransparencyOf :: Color -> (Int, Int) -> Color
+paletteColourWithTransparencyOf col idx
+  = makeColor r g b a
+  where
+    (r, g, b, _) = rgbaOfColor $ paletteColour idx
+    (_, _, _, a) = rgbaOfColor col
+
 -- Adjust a colour transparency (alpha value) for the given index position in the transparency palette.
 --
 transparencyColour :: Color -> Int -> Color
 transparencyColour col i
   = makeColor r g b (fromIntegral i / 16)
   where
-    (r, g, b, a) = rgbaOfColor col
+    (r, g, b, _a) = rgbaOfColor col
 
 -- Draw a picture of the entire application window.
 --
@@ -318,10 +338,16 @@ drawWindow state
     colourOffset  = 2 * colourIndicatorHeight + snd paletteSize / 2
     sizeOffset    = snd (canvasSize state) / 2 + 20
     
-    colourIndicator = Pictures
+    colourIndicator = Pictures $
+                      [ Translate (fromIntegral i * pixelWidth  + pixelWidth  / 2) 
+                                  (fromIntegral j * pixelHeight + pixelHeight / 2) $
+                          rectangleChecker pixelWidth pixelHeight
+                      | i <- [-8..7], j <- [-1..0] ] ++
                       [ Color (colour state) (rectangleSolid (fst paletteSize) colourIndicatorHeight)
                       , Color gridColor      (rectangleWire  (fst paletteSize) colourIndicatorHeight)
                       ]
+    pixelWidth      = fromIntegral $ fst pixelSize
+    pixelHeight     = fromIntegral $ snd pixelSize
                       
     canvasSizeText = let (width, height) = areaSize (area state)
                      in
@@ -447,7 +473,7 @@ handleEvent (EventKey (MouseButton RightButton) Down mods mousePos) state
 handleEvent (EventKey (MouseButton LeftButton) Up _mods mousePos) state
   = return $ selectColour mousePos (state {penDown = Nothing})
 handleEvent (EventKey (MouseButton RightButton) Up _mods mousePos) state
-  = return $ selectColour mousePos (state {penDown = Nothing})
+  = return $ state {penDown = Nothing}
 handleEvent (EventMotion mousePos) state
   = return $ draw mousePos state
 
@@ -490,16 +516,21 @@ draw mousePos (state@State { penDown = Just col })
 draw _mousePos state
   = state
 
--- Select a colour if mouse position is within palette boundaries.
+-- Select a colour if mouse position is within palette boundaries or a transparency if mouse position is within
+-- transparency picker boundaries.
 --
 selectColour :: Point -> State -> State
 selectColour mousePos state
-  = case windowPosToCanvas paletteSize adjustedMousePos of
-      Nothing  -> state
-      Just idx -> state { colour = paletteColour idx }
+  = case windowPosToCanvas paletteSize paletteAdjustedMousePos of
+      Nothing  -> case windowPosToCanvas pickerSize pickerAdjustedMousePos of
+                    Nothing     -> state
+                    Just (i, _) -> state { colour = transparencyColour (colour state) i }
+      Just idx -> state { colour = paletteColourWithTransparencyOf (colour state) idx }
   where
-    paletteOffset    = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
-    adjustedMousePos = (fst mousePos - paletteOffset, snd mousePos)
+    paletteOffsetX          = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
+    pickerOffsetY           = 2 * colourIndicatorHeight + snd paletteSize / 2
+    paletteAdjustedMousePos = (fst mousePos - paletteOffsetX, snd mousePos)
+    pickerAdjustedMousePos  = (fst mousePos - paletteOffsetX, snd mousePos - pickerOffsetY)
 
 -- Resize the used canvas area.
 --
