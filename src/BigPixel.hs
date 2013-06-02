@@ -4,7 +4,6 @@
 -- License     : BSD3
 --
 -- Maintainer  : Manuel M T Chakravarty <chak@cse.unsw.edu.au>
--- Stability   : experimental
 -- Portability : haskell2011
 --
 -- /Usage/
@@ -12,8 +11,8 @@
 -- Provide the filename as the single command line argument.
 --
 -- Left mouse button          — draw with current colour
--- Left mouse button + Shift  — erase
--- Right mouse button         — erase
+-- Left mouse button + Shift  — erase with transparency
+-- Right mouse button         — erase with transparency
 -- 'W', 'S', 'A', 'D'         - enlarge canvas to the top, bottom, left, and right, respectively
 -- 'W', 'S', 'A', 'D' + Shift - shrink canvas from the top, bottom, left, and right, respectively
 --
@@ -77,6 +76,13 @@ colourIndicatorHeight = fromIntegral (fst pixelSize) * 2
 --
 gridColor :: Color
 gridColor = makeColor 0.9 0.9 0.9 1
+
+-- Fully transparent colour.
+--
+-- We use transparent white, so that software ignoring the alpha channel displays it as white.
+--
+transparent :: Color
+transparent = makeColor 1 1 1 0
 
 
 -- Application state
@@ -212,7 +218,8 @@ drawCanvas state
   where
     drawPixelBlock (pos, color) 
       = Translate x y $
-          Pictures [ Color color (rectangleSolid width height)
+          Pictures [ rectangleChecker width height
+                   , Color color (rectangleSolid width height)
                    , Color gridColor (rectangleWire width height)
                    ]
       where
@@ -239,6 +246,37 @@ drawPalette
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
 
+-- Produce the picture if the transparency picker.
+--
+drawTransparency :: Color -> Picture
+drawTransparency col
+  = Pictures (map drawTransparencyBlock [0..15])
+  where
+    drawTransparencyBlock :: Int -> Picture
+    drawTransparencyBlock i
+      = Translate x 0 $ Color (transparencyColour col i) (rectangleSolid width height)
+      where
+        (x, _) = canvasToWidgetPos paletteSize (i, 0)
+        width  = fromIntegral (fst pixelSize)
+        height = fromIntegral (snd pixelSize)
+
+-- Draw a checker rectangle.
+--
+-- Width and height must be divisible by 2.
+--
+rectangleChecker :: Float -> Float -> Picture
+rectangleChecker width height
+  = Pictures [ Translate (-w4) (-h4) $ Color (gridColor) (rectangleSolid w2 h2)
+             , Translate (-w4) ( h4) $ Color white (rectangleSolid w2 h2)
+             , Translate ( w4) (-h4) $ Color white (rectangleSolid w2 h2)
+             , Translate ( w4) ( h4) $ Color (gridColor) (rectangleSolid w2 h2)
+             ]
+  where
+    w2 = width  / 2
+    h2 = height / 2
+    w4 = width  / 4
+    h4 = height / 4
+
 -- Compute the colour of the palette at a particular index position.
 --
 paletteColour :: (Int, Int) -> Color
@@ -252,6 +290,14 @@ paletteColour (i, j)
 
     scale x = x * 25 + (25 / 3) * brightness
 
+-- Adjust a colour transparency (alpha value) for the given index position in the transparency palette.
+--
+transparencyColour :: Color -> Int -> Color
+transparencyColour col i
+  = makeColor r g b (fromIntegral i / 16)
+  where
+    (r, g, b, a) = rgbaOfColor col
+
 -- Draw a picture of the entire application window.
 --
 drawWindow :: State -> IO Picture
@@ -263,6 +309,7 @@ drawWindow state
              -- , Translate (-imageOffset) 0 (drawImage state)
              , Translate paletteOffset 0               drawPalette
              , Translate paletteOffset (-colourOffset) colourIndicator
+             , Translate paletteOffset colourOffset    (drawTransparency (colour state))
              ]
   where
     imageOffset   = elementPadding + fst (canvasSize state) / 2 +
@@ -328,7 +375,7 @@ readImageFile fname
   where
     maxX        = fst initialCanvasSize - 1
     maxY        = snd initialCanvasSize - 1
-    emptyCanvas = listArray ((0, 0), (maxX, maxY)) (repeat white)
+    emptyCanvas = listArray ((0, 0), (maxX, maxY)) (repeat transparent)
     
     quads :: [a] -> [[a]]
     quads []             = []
@@ -392,12 +439,14 @@ handleEvent :: Event -> State -> IO State
 
   -- Drawing and colour selection
 handleEvent (EventKey (MouseButton LeftButton) Down mods mousePos) state
-  = let newState = state { penDown = Just (if shift mods == Up then colour state else white) }
+  = let newState = state { penDown = Just (if shift mods == Up then colour state else transparent) }
     in return $ draw mousePos newState
 handleEvent (EventKey (MouseButton RightButton) Down mods mousePos) state
-  = let newState = state { penDown = Just white }
+  = let newState = state { penDown = Just transparent }
     in return $ draw mousePos newState
 handleEvent (EventKey (MouseButton LeftButton) Up _mods mousePos) state
+  = return $ selectColour mousePos (state {penDown = Nothing})
+handleEvent (EventKey (MouseButton RightButton) Up _mods mousePos) state
   = return $ selectColour mousePos (state {penDown = Nothing})
 handleEvent (EventMotion mousePos) state
   = return $ draw mousePos state
@@ -478,7 +527,7 @@ resize ((dminX, dminY), (dmaxX, dmaxY)) state
       | otherwise
       = array newCanvasArea [ (pos, if inRange canvasArea pos 
                                     then canvas state ! pos 
-                                    else white)
+                                    else transparent)
                             | pos <- range newCanvasArea]
 
 
