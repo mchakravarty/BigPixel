@@ -14,3 +14,18 @@ As BigPixel is a plain OpenGL application without platform-specific GUI support,
 **WARNING:** There is currently no undo facility! Make copies of image files if you are unsure whether you like to keep the changes. (However, if you shrink the visible canvas, the removed content can be restored by simply enlarging the canvas again.)
 
 ![Screenshot of BigPixel](images/BigPixel-Island.png)
+
+Installation
+------------
+
+You need to have the Glasgow Haskell Compiler to compile from source. It is available as part of the [Haskell Platform](http://www.haskell.org/platform/).
+
+To install the current release of BigPixel from [Hackage](http://hackage.haskell.org/packages/hackage.html), simply execute
+
+    % cabal install BigPixel
+
+To install the current version from GitHub, 
+
+    % git clone https://github.com/mchakravarty/BigPixel.git
+    % cd BigPixel
+    % cabal install
