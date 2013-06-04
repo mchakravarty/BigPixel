@@ -43,7 +43,7 @@ source-repository head
 
 Executable BigPixel
   Build-Depends:  array >= 0.3,
-                  base >= 4,
+                  base >= 4 && < 5,
                   bmp >= 1.2.5.1 && < 2.0,
                   bytestring > 0.10,
                   gloss >= 1.7 && < 2.0
