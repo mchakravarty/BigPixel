@@ -12,12 +12,12 @@ line argument. If the file exists, it will be opened for editing; otherwise, a n
 created. All changes made to an image are persistent — i.e., reflected in the on disk image without
 explicit saving.
 
-  Left mouse button          — draw with current colour
-  Left mouse button + Shift  — erase with transparency
-  Right mouse button         — erase with transparency
-  'W', 'S', 'A', 'D'         - enlarge canvas to the top, bottom, left, and right, respectively
-  'W', 'S', 'A', 'D' + Shift - shrink canvas from the top, bottom, left, and right, respectively
+    Left mouse button          — draw with current colour
+    Left mouse button + Shift  — erase with transparency
+    Right mouse button         — erase with transparency
+    'W', 'S', 'A', 'D'         — enlarge canvas to the top, bottom, left, and right, respectively
+    'W', 'S', 'A', 'D' + Shift — shrink canvas from the top, bottom, left, and right, respectively
 
-*WARNING:* There is currently no undo facility! Make copies of image files if you are unsure whether
+**WARNING:** There is currently no undo facility! Make copies of image files if you are unsure whether
 you like to keep the changes. (However, if you shrink the visible canvas, the removed content can
 be restored by simply enlarging the canvas again.)
