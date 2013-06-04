@@ -1,6 +1,6 @@
 -- |
 -- Module      : Main
--- Copyright   : [2013] Manuel M T Chakravarty
+-- Copyright   : [2013] Manuel M T Chakravarty & Leon A Chakravarty
 -- License     : BSD3
 --
 -- Maintainer  : Manuel M T Chakravarty <chak@cse.unsw.edu.au>
