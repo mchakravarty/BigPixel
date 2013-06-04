@@ -29,3 +29,8 @@ To install the current version from GitHub,
     % git clone https://github.com/mchakravarty/BigPixel.git
     % cd BigPixel
     % cabal install
+
+Hacking
+-------
+
+The Haskell code is relatively simple on purpose. It is part of an effort to teach programming to children. Contributions are most welcome, but please keep them in this spirit.
