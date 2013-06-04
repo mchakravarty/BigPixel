@@ -12,3 +12,5 @@ As BigPixel is a plain OpenGL application without platform-specific GUI support,
     'W', 'S', 'A', 'D' + Shift — shrink canvas from the top, bottom, left, and right, respectively
 
 **WARNING:** There is currently no undo facility! Make copies of image files if you are unsure whether you like to keep the changes. (However, if you shrink the visible canvas, the removed content can be restored by simply enlarging the canvas again.)
+
+![Screenshot of BigPixel](images/BigPixel-Island.png)
