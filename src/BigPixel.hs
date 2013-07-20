@@ -307,9 +307,9 @@ rectangleChecker width height
 -- Intensity scales
 --
 -- * 00 = 0% (irrespective of brightness)
--- * 01 = brighness ? 60%  : 30%
--- * 10 = brighness ? 80%  : 40%
--- * 11 = brighness ? 100% : 50%
+-- * 01 = brightness ? 60%  : 30%
+-- * 10 = brightness ? 80%  : 40%
+-- * 11 = brightness ? 100% : 50%
 --
 -- Transparency is 50%.
 --
@@ -497,11 +497,33 @@ word8ToColor arg = error ("word8ToColor: not a quad: " ++ show arg)
 --
 clipColour :: Color -> Color
 clipColour col
-  = let (red, green, blue, alpha) = rgbaOfColor col
-    in
-    makeColor (clip red) (clip green) (clip blue) (clip alpha)
+  | transparent = makeColor 0 0 0 0
+  | black       = makeColor 0 0 0 1
+  | otherwise   = makeColor red' green' blue' alpha'
   where
-    clip = (/ 3) . fromIntegral . (round :: Float -> Int) . (* 3)
+    (red, green, blue, alpha) = rgbaOfColor col
+    
+    black                                  = averageBrightness [red, green, blue] < 0.15
+    transparent                            = alpha < 0.25
+    alpha' | alpha >= 0.25 && alpha < 0.75 = 0.5
+           | otherwise                     = 1
+    
+    bright = averageBrightness [red, green, blue] >= 0.55
+    red'   = clip red
+    green' = clip green
+    blue'  = clip blue
+    
+    averageBrightness cols = sum significantCols / fromIntegral (length significantCols)
+      where
+        significantCols = [col | col <- cols, col >= 0.15]
+    
+    clip c | c < 0.15           = 0
+           | bright && c < 0.70 = 0.6
+           | bright && c < 0.90 = 0.8
+           | bright             = 1
+           | c > 0.45           = 0.5
+           | c > 0.35           = 0.4
+           | otherwise          = 0.3
 
 
 -- Event handling
