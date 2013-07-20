@@ -179,10 +179,12 @@ canvasSize state
 paletteSize :: Point
 paletteSize = (fromIntegral (16 * fst pixelSize), fromIntegral (16 * snd pixelSize))
 
+{-
 -- Size of the transparency picker in physical pixel.
 --
 pickerSize :: Point
 pickerSize = (fromIntegral (16 * fst pixelSize), fromIntegral (snd pixelSize))
+-}
 
 -- Convert window coordinates to a canvas index.
 --
@@ -245,13 +247,16 @@ drawPalette
   where
     drawPaletteBlock :: (Int, Int) -> Picture
     drawPaletteBlock pos
-      = Translate x y $ Color (paletteColour pos) (rectangleSolid width height)
+      = Translate x y $ Pictures [ rectangleChecker width height
+                                 , Color (paletteColour pos) (rectangleSolid width height)
+                                 ]
       where
         (x, y) = canvasToWidgetPos paletteSize pos
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
 
--- Produce the picture if the transparency picker.
+{-
+-- Produce the picture of the transparency picker.
 --
 drawTransparency :: Color -> Picture
 drawTransparency col
@@ -267,6 +272,7 @@ drawTransparency col
         (x, _) = canvasToWidgetPos paletteSize (i, 0)
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
+-}
 
 -- Draw a checker rectangle with a wire frame.
 --
@@ -290,17 +296,46 @@ rectangleChecker width height
 
 -- Compute the colour of the palette at a particular index position.
 --
+-- 8-bit palette: RRGGBBIT
+--
+-- * RR = 2-bit red
+-- * GG = 2-bit green
+-- * BB = 2-bit blue
+-- * I  = 1-bit brightness
+-- * T  = 1-bit transparency
+--
+-- Intensity scales
+--
+-- * 00 = 0% (irrespective of brightness)
+-- * 01 = brighness ? 60%  : 30%
+-- * 10 = brighness ? 80%  : 40%
+-- * 11 = brighness ? 100% : 50%
+--
+-- Transparency is 50%.
+--
+-- Special values
+--
+-- * 00000001 = fully transparent (black)
+-- * 00000010 = reserved
+-- * 00000001 = reserved
+--
+-- Here, i = 4 MSBs and j = 4 LSBs.
+--
 paletteColour :: (Int, Int) -> Color
+paletteColour (0, 1) = transparent
 paletteColour (i, j)
-  = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) 1
+  = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) (if transparency == 1 then 0.5 else 1)
   where
-    red        = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (j `div` 8) `mod` 2
-    green      = fromIntegral $ ((i `div` 4) `mod` 2) * 2 + (j `div` 4) `mod` 2
-    blue       = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
-    brightness = fromIntegral $ (i           `mod` 2) * 2 + j           `mod` 2
+    red          = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (i `div` 4) `mod` 2
+    green        = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + i           `mod` 2
+    blue         = fromIntegral $ ((j `div` 8) `mod` 2) * 2 + (j `div` 4) `mod` 2
+    brightness   = fromIntegral $ ((j `div` 2) `mod` 2)
+    transparency = fromIntegral $ (j           `mod` 2)
 
-    scale x = x * 25 + (25 / 3) * brightness
+    scale 0 = 0
+    scale x = (40 + (60 / 3) * x) * (if brightness == 0 then 0.5 else 1)
 
+{-
 -- Compute the colour of the palette at a particular index position, but use the transparency of the given colour.
 --
 paletteColourWithTransparencyOf :: Color -> (Int, Int) -> Color
@@ -309,7 +344,9 @@ paletteColourWithTransparencyOf col idx
   where
     (r, g, b, _) = rgbaOfColor $ paletteColour idx
     (_, _, _, a) = rgbaOfColor col
+    -}
 
+{-
 -- Adjust a colour transparency (alpha value) for the given index position in the transparency palette.
 --
 transparencyColour :: Color -> Int -> Color
@@ -317,6 +354,7 @@ transparencyColour col i
   = makeColor r g b (fromIntegral i / 16)
   where
     (r, g, b, _a) = rgbaOfColor col
+-}
 
 -- Draw a picture of the entire application window.
 --
@@ -329,7 +367,7 @@ drawWindow state
              -- , Translate (-imageOffset) 0 (drawImage state)
              , Translate paletteOffset 0               drawPalette
              , Translate paletteOffset (-colourOffset) colourIndicator
-             , Translate paletteOffset colourOffset    (drawTransparency (colour state))
+             -- , Translate paletteOffset colourOffset    (drawTransparency (colour state))
              ]
   where
     imageOffset   = elementPadding + fst (canvasSize state) / 2 +
@@ -409,8 +447,8 @@ readImageFile fname
     quads l              = [l]
                        
     averageAt image (i, j)
-      = image ! (i * fst pixelSize + fst pixelSize `div` 2, 
-                 j * snd pixelSize + snd pixelSize `div` 2)
+      = clipColour $ image ! (i * fst pixelSize + fst pixelSize `div` 2, 
+                              j * snd pixelSize + snd pixelSize `div` 2)
       -- = foldl1 addColors [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
       --                    | ioff <- [0..fst pixelSize - 1]
       --                    , joff <- [0..snd pixelSize - 1]]
@@ -454,6 +492,16 @@ word8ToColor [red, green, blue, alpha]
   where
     fromWord8 = (/ 255) . fromIntegral
 word8ToColor arg = error ("word8ToColor: not a quad: " ++ show arg)
+
+-- Clip a colour to the BigPixel 8-bit colour space
+--
+clipColour :: Color -> Color
+clipColour col
+  = let (red, green, blue, alpha) = rgbaOfColor col
+    in
+    makeColor (clip red) (clip green) (clip blue) (clip alpha)
+  where
+    clip = (/ 3) . fromIntegral . (round :: Float -> Int) . (* 3)
 
 
 -- Event handling
@@ -522,15 +570,17 @@ draw _mousePos state
 selectColour :: Point -> State -> State
 selectColour mousePos state
   = case windowPosToCanvas paletteSize paletteAdjustedMousePos of
-      Nothing  -> case windowPosToCanvas pickerSize pickerAdjustedMousePos of
-                    Nothing     -> state
-                    Just (i, _) -> state { colour = transparencyColour (colour state) i }
-      Just idx -> state { colour = paletteColourWithTransparencyOf (colour state) idx }
+      -- Nothing  -> case windowPosToCanvas pickerSize pickerAdjustedMousePos of
+      --               Nothing     -> state
+      --               Just (i, _) -> state { colour = transparencyColour (colour state) i }
+      -- Just idx -> state { colour = paletteColourWithTransparencyOf (colour state) idx }
+      Nothing  -> state
+      Just idx -> state { colour = paletteColour idx }
   where
     paletteOffsetX          = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
-    pickerOffsetY           = 2 * colourIndicatorHeight + snd paletteSize / 2
+    -- pickerOffsetY           = 2 * colourIndicatorHeight + snd paletteSize / 2
     paletteAdjustedMousePos = (fst mousePos - paletteOffsetX, snd mousePos)
-    pickerAdjustedMousePos  = (fst mousePos - paletteOffsetX, snd mousePos - pickerOffsetY)
+    -- pickerAdjustedMousePos  = (fst mousePos - paletteOffsetX, snd mousePos - pickerOffsetY)
 
 -- Resize the used canvas area.
 --
