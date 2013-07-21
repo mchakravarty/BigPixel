@@ -447,11 +447,12 @@ readImageFile fname
     quads l              = [l]
                        
     averageAt image (i, j)
-      = clipColour $ image ! (i * fst pixelSize + fst pixelSize `div` 2, 
-                              j * snd pixelSize + snd pixelSize `div` 2)
-      -- = foldl1 addColors [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
-      --                    | ioff <- [0..fst pixelSize - 1]
-      --                    , joff <- [0..snd pixelSize - 1]]
+      -- = clipColour $ image ! (i * fst pixelSize + fst pixelSize `div` 2, 
+      --                         j * snd pixelSize + snd pixelSize `div` 2)
+      = clipColour $
+          foldl1 (mixColors 0.5 0.5) [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
+                                     | ioff <- [0..fst pixelSize - 1]
+                                     , joff <- [0..snd pixelSize - 1]]
 
 -- Write the contents of the canvas to the image file.
 --
