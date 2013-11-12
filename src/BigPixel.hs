@@ -79,10 +79,13 @@ gridColor = makeColor 0.9 0.9 0.9 1
 
 -- Fully transparent colour.
 --
--- We use transparent white, so that software ignoring the alpha channel displays it as white.
---
 transparent :: Color
-transparent = makeColor 1 1 1 0
+transparent = makeColor 0 0 0 0
+
+-- Nearly (25% opaque) transparent colour.
+--
+nearlytransparent :: Color
+nearlytransparent = makeColor 0.25 0.25 0.25 0.25
 
 
 -- Application state
@@ -179,13 +182,6 @@ canvasSize state
 paletteSize :: Point
 paletteSize = (fromIntegral (16 * fst pixelSize), fromIntegral (16 * snd pixelSize))
 
-{-
--- Size of the transparency picker in physical pixel.
---
-pickerSize :: Point
-pickerSize = (fromIntegral (16 * fst pixelSize), fromIntegral (snd pixelSize))
--}
-
 -- Convert window coordinates to a canvas index.
 --
 windowPosToCanvas :: (Float, Float) -> Point -> Maybe (Int, Int)
@@ -246,33 +242,14 @@ drawPalette
   = Pictures (map drawPaletteBlock [(i, j) | i <- [0..15], j <- [0..15]])
   where
     drawPaletteBlock :: (Int, Int) -> Picture
-    drawPaletteBlock pos
+    drawPaletteBlock pos@(i, j)
       = Translate x y $ Pictures [ rectangleChecker width height
-                                 , Color (paletteColour pos) (rectangleSolid width height)
+                                 , Color (paletteColour (i, 15 - j)) (rectangleSolid width height)
                                  ]
       where
         (x, y) = canvasToWidgetPos paletteSize pos
         width  = fromIntegral (fst pixelSize)
         height = fromIntegral (snd pixelSize)
-
-{-
--- Produce the picture of the transparency picker.
---
-drawTransparency :: Color -> Picture
-drawTransparency col
-  = Pictures (map drawTransparencyBlock [0..15])
-  where
-    drawTransparencyBlock :: Int -> Picture
-    drawTransparencyBlock i
-      = Translate x 0 $ 
-          Pictures [rectangleChecker width height
-                   , Color (transparencyColour col i) (rectangleSolid width height)
-                   ]
-      where
-        (x, _) = canvasToWidgetPos paletteSize (i, 0)
-        width  = fromIntegral (fst pixelSize)
-        height = fromIntegral (snd pixelSize)
--}
 
 -- Draw a checker rectangle with a wire frame.
 --
@@ -296,7 +273,7 @@ rectangleChecker width height
 
 -- Compute the colour of the palette at a particular index position.
 --
--- 8-bit palette: RRGGBBIT
+-- 8-bit palette: RRGIBBGT
 --
 -- * RR = 2-bit red
 -- * GG = 2-bit green
@@ -315,21 +292,21 @@ rectangleChecker width height
 --
 -- Special values
 --
--- * 00000001 = fully transparent (black)
--- * 00000010 = reserved
--- * 00000001 = reserved
+-- * 00010000 = 25% transparent (black)
+-- * 00010001 = fully transparent (black)
 --
 -- Here, i = 4 MSBs and j = 4 LSBs.
 --
 paletteColour :: (Int, Int) -> Color
-paletteColour (0, 1) = transparent
+paletteColour (1, 0) = nearlytransparent
+paletteColour (1, 1) = transparent
 paletteColour (i, j)
   = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) (if transparency == 1 then 0.5 else 1)
   where
     red          = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (i `div` 4) `mod` 2
-    green        = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + i           `mod` 2
+    green        = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
     blue         = fromIntegral $ ((j `div` 8) `mod` 2) * 2 + (j `div` 4) `mod` 2
-    brightness   = fromIntegral $ ((j `div` 2) `mod` 2)
+    brightness   = fromIntegral $ (i           `mod` 2)
     transparency = fromIntegral $ (j           `mod` 2)
 
     scale 0 = 0
