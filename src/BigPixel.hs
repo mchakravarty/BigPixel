@@ -75,7 +75,7 @@ colourIndicatorHeight = fromIntegral (fst pixelSize) * 2
 -- The colour of the grid lines.
 --
 gridColor :: Color
-gridColor = makeColor 0.9 0.9 0.9 1
+gridColor = makeColor 0.85 0.85 0.85 0.3
 
 -- Fully transparent colour.
 --
@@ -242,9 +242,9 @@ drawPalette
   = Pictures (map drawPaletteBlock [(i, j) | i <- [0..15], j <- [0..15]])
   where
     drawPaletteBlock :: (Int, Int) -> Picture
-    drawPaletteBlock pos@(i, j)
+    drawPaletteBlock pos
       = Translate x y $ Pictures [ rectangleChecker width height
-                                 , Color (paletteColour (i, 15 - j)) (rectangleSolid width height)
+                                 , Color (paletteColour pos) (rectangleSolid width height)
                                  ]
       where
         (x, y) = canvasToWidgetPos paletteSize pos
@@ -257,12 +257,12 @@ drawPalette
 --
 rectangleChecker :: Float -> Float -> Picture
 rectangleChecker width height
-  = Pictures [ Translate (-w4) (-h4) $ Color (greyN 0.7) (rectangleSolid w2 h2)
-             , Translate (-w4) ( h4) $ Color white       (rectangleSolid w2 h2)
-             , Translate ( w4) (-h4) $ Color white       (rectangleSolid w2 h2)
-             , Translate ( w4) ( h4) $ Color (greyN 0.7) (rectangleSolid w2 h2)
-             , Translate 0     0     $ Color gridColor (Line [(0, -h2), (0, h2)])
-             , Translate 0     0     $ Color gridColor (Line [(-h2, 0), (h2, 0)])
+  = Pictures [ Translate (-w4) (-h4) $ Color (greyN 0.90) (rectangleSolid w2 h2)
+             , Translate (-w4) ( h4) $ Color white        (rectangleSolid w2 h2)
+             , Translate ( w4) (-h4) $ Color white        (rectangleSolid w2 h2)
+             , Translate ( w4) ( h4) $ Color (greyN 0.90) (rectangleSolid w2 h2)
+             , Translate 0     0     $ Color (greyN 0.95) (Line [(0, -h2), (0, h2)])
+             , Translate 0     0     $ Color (greyN 0.95) (Line [(-h2, 0), (h2, 0)])
              , Translate 0     0     $ Color gridColor (rectangleWire width height)
              ]
   where
@@ -298,19 +298,21 @@ rectangleChecker width height
 -- Here, i = 4 MSBs and j = 4 LSBs.
 --
 paletteColour :: (Int, Int) -> Color
-paletteColour (1, 0) = nearlytransparent
-paletteColour (1, 1) = transparent
-paletteColour (i, j)
-  = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) (if transparency == 1 then 0.5 else 1)
+paletteColour (i, j) = paletteColour' (i, 15 - j)
   where
-    red          = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (i `div` 4) `mod` 2
-    green        = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
-    blue         = fromIntegral $ ((j `div` 8) `mod` 2) * 2 + (j `div` 4) `mod` 2
-    brightness   = fromIntegral $ (i           `mod` 2)
-    transparency = fromIntegral $ (j           `mod` 2)
-
-    scale 0 = 0
-    scale x = (40 + (60 / 3) * x) * (if brightness == 0 then 0.5 else 1)
+    paletteColour' (1, 0) = nearlytransparent
+    paletteColour' (1, 1) = transparent
+    paletteColour' (i, j)
+      = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) (if transparency == 1 then 0.5 else 1)
+      where
+        red          = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (i `div` 4) `mod` 2
+        green        = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
+        blue         = fromIntegral $ ((j `div` 8) `mod` 2) * 2 + (j `div` 4) `mod` 2
+        brightness   = fromIntegral $ (i           `mod` 2)
+        transparency = fromIntegral $ (j           `mod` 2)
+    
+        scale 0 = 0
+        scale x = (40 + (60 / 3) * x) * (if brightness == 0 then 0.5 else 1)
 
 {-
 -- Compute the colour of the palette at a particular index position, but use the transparency of the given colour.
