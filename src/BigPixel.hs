@@ -75,7 +75,7 @@ colourIndicatorHeight = fromIntegral (fst pixelSize) * 2
 -- The colour of the grid lines.
 --
 gridColor :: Color
-gridColor = makeColor 0.85 0.85 0.85 0.3
+gridColor = makeColor 0.8 0.8 0.8 1
 
 -- Fully transparent colour.
 --
