@@ -82,10 +82,15 @@ gridColor = makeColor 0.8 0.8 0.8 1
 transparent :: Color
 transparent = makeColor 0 0 0 0
 
--- Nearly (25% opaque) transparent colour.
+-- Nearly (25% opaque) transparent black.
 --
 nearlytransparent :: Color
-nearlytransparent = makeColor 0.25 0.25 0.25 0.25
+nearlytransparent = makeColor 0 0 0 0.25
+
+-- Half (50% opaque) transparent black.
+--
+halftransparent :: Color
+halftransparent = makeColor 0 0 0 0.5
 
 
 -- Application state
@@ -289,15 +294,16 @@ rectangleChecker width height
 -- Intensity scales
 --
 -- * 00 = 0% (irrespective of brightness)
--- * 01 = brightness ? 60%  : 30%
--- * 10 = brightness ? 80%  : 40%
--- * 11 = brightness ? 100% : 50%
+-- * 01 = brightness ? 40%  : (transparency ? 30% : 20%)
+-- * 10 = brightness ? 70%  : (transparency ? 60% : 50%)
+-- * 11 = brightness ? 100% : (transparency ? 90% : 80%)
 --
--- Transparency is 50%.
+-- Transparency is 50% if brightness == 1.
 --
 -- Special values
 --
 -- * 00010000 = 25% transparent (black)
+-- * 00000001 = 50% transparent (black)
 -- * 00010001 = fully transparent (black)
 --
 -- Here, i = 4 MSBs and j = 4 LSBs.
@@ -306,9 +312,11 @@ paletteColour :: (Int, Int) -> Color
 paletteColour (i, j) = paletteColour' (i, 15 - j)
   where
     paletteColour' (1, 0) = nearlytransparent
+    paletteColour' (0, 1) = halftransparent
     paletteColour' (1, 1) = transparent
     paletteColour' (i, j)
-      = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) (if transparency == 1 then 0.5 else 1)
+      = makeColor (scale red / 100) (scale green / 100) (scale blue / 100) 
+                  (if transparency == 1 && brightness == 1 then 0.5 else 1)
       where
         red          = fromIntegral $ ((i `div` 8) `mod` 2) * 2 + (i `div` 4) `mod` 2
         green        = fromIntegral $ ((i `div` 2) `mod` 2) * 2 + (j `div` 2) `mod` 2
@@ -317,7 +325,15 @@ paletteColour (i, j) = paletteColour' (i, 15 - j)
         transparency = fromIntegral $ (j           `mod` 2)
     
         scale 0 = 0
-        scale x = (40 + (60 / 3) * x) * (if brightness == 0 then 0.5 else 1)
+        scale 1 | brightness   == 1 = 40
+                | transparency == 1 = 30
+                | otherwise         = 20
+        scale 2 | brightness   == 1 = 70
+                | transparency == 1 = 60
+                | otherwise         = 50
+        scale 3 | brightness   == 1 = 100
+                | transparency == 1 = 90
+                | otherwise         = 80
 
 {-
 -- Compute the colour of the palette at a particular index position, but use the transparency of the given colour.
@@ -380,8 +396,10 @@ drawWindow state
 
 -- Try to read the image file and to convert it to a canvas. If that fails yield an empty canvas.
 --
-readImageFile :: FilePath -> IO (Canvas, BMP)
-readImageFile fname
+-- The first argument determines whether we clip the input colours to the BigPixel colour palette.
+--
+readImageFile :: Bool -> FilePath -> IO (Canvas, BMP)
+readImageFile forcePalette fname
   = do 
     { result <- readBMP fname
     ; case result of
@@ -432,7 +450,7 @@ readImageFile fname
     averageAt image (i, j)
       -- = clipColour $ image ! (i * fst pixelSize + fst pixelSize `div` 2, 
       --                         j * snd pixelSize + snd pixelSize `div` 2)
-      = clipColour $
+      = (if forcePalette then clipColour else id) $
           foldl1 (mixColors 0.5 0.5) [ image ! (i * fst pixelSize + ioff, j * snd pixelSize + joff) 
                                      | ioff <- [0..fst pixelSize - 1]
                                      , joff <- [0..snd pixelSize - 1]]
@@ -642,18 +660,19 @@ main
   = do
     {   -- Read the image file name from the command line arguments
     ; args <- getArgs
-    ; when (length args /= 1) $ do
-        { putStrLn "BigPixel: need exactly one argument, the image file name with suffix '.bmp'"
+    ; let forcePalette = length args == 2 && head args == "--force-palette"
+    ; when (not $ length args == 1 || forcePalette) $ do
+        { putStrLn "BigPixel: needs image file name with suffix '.bmp' as argument,\n  optionally preceeded by --force-palette"
         ; exitFailure
         }
-    ; let [fname] = args
+    ; let [fname] = if forcePalette then tail args else args
     ; when (take 4 (reverse fname) /= reverse ".bmp") $ do
         { putStrLn "BigPixel: image file must have suffix '.bmp'"
         ; exitFailure
         }
     
         -- Read the image from the given file, or yield an empty canvas
-    ; (canvas, image) <- readImageFile fname
+    ; (canvas, image) <- readImageFile forcePalette fname
     
         -- Initialise the application state
     ; let state             = initialState fname canvas image
