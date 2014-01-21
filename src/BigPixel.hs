@@ -671,6 +671,9 @@ main
         ; exitFailure
         }
     
+    ; when forcePalette $
+        putStrLn "WARNING: --force-palette needs to be adapted to the latest palette"
+    
         -- Read the image from the given file, or yield an empty canvas
     ; (canvas, image) <- readImageFile forcePalette fname
     
