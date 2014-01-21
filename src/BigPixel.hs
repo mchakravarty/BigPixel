@@ -166,7 +166,7 @@ windowSize state
      (20 + 1.5 * canvasH + 2 * windowPadding) `max` (1.5 * paletteH + 2 * windowPadding))
   where
     (canvasW,  canvasH)  = canvasSize state
-    (paletteW, paletteH) = paletteSize
+    (paletteW, paletteH) = zoomedPaletteSize
 
 -- Size of the canvas in physical pixel.
 --
@@ -181,6 +181,11 @@ canvasSize state
 --
 paletteSize :: Point
 paletteSize = (fromIntegral (16 * fst pixelSize), fromIntegral (16 * snd pixelSize))
+
+-- Size of the palette in physical pixel *scaled* by a factor of two.
+--
+zoomedPaletteSize :: Point
+zoomedPaletteSize = (fst paletteSize * 2, snd paletteSize * 2)
 
 -- Convert window coordinates to a canvas index.
 --
@@ -344,24 +349,23 @@ drawWindow state
              , Translate (-40)         sizeOffset      canvasSizeText
                         -- ^^FIXME: Gloss doesn't seem to center text :(
              -- , Translate (-imageOffset) 0 (drawImage state)
-             , Translate paletteOffset 0               drawPalette
+             , Translate paletteOffset 0               (Scale 2 2 drawPalette)
              , Translate paletteOffset (-colourOffset) colourIndicator
-             -- , Translate paletteOffset colourOffset    (drawTransparency (colour state))
              ]
   where
     imageOffset   = elementPadding + fst (canvasSize state) / 2 +
                     fromIntegral (fst (bmpDimensions (image state))) / 2
-    paletteOffset = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
-    colourOffset  = 2 * colourIndicatorHeight + snd paletteSize / 2
+    paletteOffset = elementPadding + fst (canvasSize state) / 2 + fst zoomedPaletteSize / 2
+    colourOffset  = 2 * colourIndicatorHeight + snd zoomedPaletteSize / 2
     sizeOffset    = snd (canvasSize state) / 2 + 20
     
     colourIndicator = Pictures $
                       [ Translate (fromIntegral i * pixelWidth  + pixelWidth  / 2) 
                                   (fromIntegral j * pixelHeight + pixelHeight / 2) $
                           rectangleChecker pixelWidth pixelHeight
-                      | i <- [-8..7], j <- [-1..0] ] ++
-                      [ Color (colour state) (rectangleSolid (fst paletteSize) colourIndicatorHeight)
-                      , Color gridColor      (rectangleWire  (fst paletteSize) colourIndicatorHeight)
+                      | i <- [-16..15], j <- [-1..0] ] ++
+                      [ Color (colour state) (rectangleSolid (fst zoomedPaletteSize) colourIndicatorHeight)
+                      , Color gridColor      (rectangleWire  (fst zoomedPaletteSize) colourIndicatorHeight)
                       ]
     pixelWidth      = fromIntegral $ fst pixelSize
     pixelHeight     = fromIntegral $ snd pixelSize
@@ -566,23 +570,16 @@ draw mousePos (state@State { penDown = Just col })
 draw _mousePos state
   = state
 
--- Select a colour if mouse position is within palette boundaries or a transparency if mouse position is within
--- transparency picker boundaries.
+-- Select a colour if mouse position is within palette boundaries.
 --
 selectColour :: Point -> State -> State
 selectColour mousePos state
   = case windowPosToCanvas paletteSize paletteAdjustedMousePos of
-      -- Nothing  -> case windowPosToCanvas pickerSize pickerAdjustedMousePos of
-      --               Nothing     -> state
-      --               Just (i, _) -> state { colour = transparencyColour (colour state) i }
-      -- Just idx -> state { colour = paletteColourWithTransparencyOf (colour state) idx }
       Nothing  -> state
       Just idx -> state { colour = paletteColour idx }
   where
-    paletteOffsetX          = elementPadding + fst (canvasSize state) / 2 + fst paletteSize / 2
-    -- pickerOffsetY           = 2 * colourIndicatorHeight + snd paletteSize / 2
-    paletteAdjustedMousePos = (fst mousePos - paletteOffsetX, snd mousePos)
-    -- pickerAdjustedMousePos  = (fst mousePos - paletteOffsetX, snd mousePos - pickerOffsetY)
+    paletteOffsetX          = elementPadding + fst (canvasSize state) / 2 + fst zoomedPaletteSize / 2
+    paletteAdjustedMousePos = ((fst mousePos - paletteOffsetX) / 2, snd mousePos / 2)
 
 -- Resize the used canvas area.
 --
