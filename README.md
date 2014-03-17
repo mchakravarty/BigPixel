@@ -1,7 +1,7 @@
 BigPixel
 ========
 
-BigPixel is an image editor for pixel art. It is aimed at creating graphics assets for retro or Minecraft-style 2D games. It supports the creation of pixelated images with 8x8 big pixels in 256 colours with 16 levels of transparency. It is an OpenGL-based cross-platform application. BigPixel currently only supports the BMP image format.
+BigPixel is an image editor for pixel art. It is aimed at creating graphics assets for retro or Minecraft-style 2D games. It supports the creation of pixelated images with 8x8 big pixels in 256 colours of which some are semi-transparent. It is an OpenGL-based cross-platform application. BigPixel currently only supports the BMP image format.
 
 As BigPixel is a plain OpenGL application without platform-specific GUI support, you need to start it as a command line program and supply it with the name of a BMP image file as its sole command line argument. If the file exists, it will be opened for editing; otherwise, a new file will be created. All changes made to an image are persistent — i.e., reflected in the on disk image without explicit saving.
 
@@ -34,3 +34,8 @@ Hacking
 -------
 
 The Haskell code is relatively simple on purpose. It is part of an effort to teach programming to children. Contributions are most welcome, but please keep them in this spirit.
+
+BigPixel on iPad
+----------------
+
+Check out the [iPad version of BigPixel](https://itunes.apple.com/app/bigpixel-draw-pixel-art-sprites/id702704364). (The iPad version uses a complete seperate code base and is not implemented in Haskell, but it provides most of the same functionality and, in particular, is based on the same colour palette.)
