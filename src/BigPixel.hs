@@ -537,7 +537,12 @@ handleEvent :: Event -> State -> IO State
 
   -- Drawing and colour selection
 handleEvent (EventKey (MouseButton LeftButton) Down mods mousePos) state
-  = let newState = state { penDown = Just (if shift mods == Up then colour state else transparent) }
+  = let newState | ctrl  mods == Down = let pickedColour = pick mousePos state
+                                        in
+                                        state { penDown = Just pickedColour
+                                              , colour  = pickedColour        }
+                 | shift mods == Down = state { penDown = Just transparent    }
+                 | otherwise          = state { penDown = Just (colour state) }
     in return $ draw mousePos newState
 handleEvent (EventKey (MouseButton RightButton) Down mods mousePos) state
   = let newState = state { penDown = Just transparent }
@@ -572,7 +577,7 @@ handleEvent event state = return state
 
 -- Draw onto the canvas if mouse position is within canvas boundaries.
 --
--- NB: Does image conversion as well; i.e., only use once per frame in the current form.
+-- (NB: Does image conversion as well; i.e., only use once per frame in the current form.)
 --
 draw :: Point -> State -> State
 draw mousePos (state@State { penDown = Just col })
@@ -587,6 +592,17 @@ draw mousePos (state@State { penDown = Just col })
                         }
 draw _mousePos state
   = state
+
+-- Determine the colour at the given point in the image, or return the current colour if the position is outside the
+-- image.
+--
+pick :: Point -> State -> Color
+pick mousePos (state@State { colour = col })
+  = case windowPosToCanvas (canvasSize state) mousePos of
+    Nothing  -> col
+    Just idx -> canvas state ! (base `vplus` idx)
+      where
+        base = fst (area state)
 
 -- Select a colour if mouse position is within palette boundaries.
 --
