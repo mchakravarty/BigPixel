@@ -204,7 +204,7 @@ windowPosToCanvas (canvasWidth, canvasHeight) (x, y)
   where 
     halfCanvasWidth             = canvasWidth  / 2
     halfCanvasHeight            = canvasHeight / 2
-    
+
     x_shifted = x + halfCanvasWidth 
     y_shifted = y + halfCanvasHeight
 
@@ -216,7 +216,7 @@ canvasToWidgetPos (canvasWidth, canvasHeight) (i, j)
   where
     x = (fromIntegral i + 0.5) * width  - (canvasWidth  / 2)
     y = (fromIntegral j + 0.5) * height - (canvasHeight / 2)
-    
+
     width  = fromIntegral (fst pixelSize)
     height = fromIntegral (snd pixelSize)
 
@@ -323,7 +323,7 @@ paletteColour (i, j) = paletteColour' (i, 15 - j)
         blue         = fromIntegral $ ((j `div` 8) `mod` 2) * 2 + (j `div` 4) `mod` 2
         brightness   = fromIntegral $ (i           `mod` 2)
         transparency = fromIntegral $ (j           `mod` 2)
-    
+
         scale 0 = 0
         scale 1 | brightness   == 1 = 40
                 | transparency == 1 = 30
@@ -374,7 +374,7 @@ drawWindow state
     paletteOffset = elementPadding + fst (canvasSize state) / 2 + fst zoomedPaletteSize / 2
     colourOffset  = 2 * colourIndicatorHeight + snd zoomedPaletteSize / 2
     sizeOffset    = snd (canvasSize state) / 2 + 20
-    
+
     colourIndicator = Pictures $
                       [ Translate (fromIntegral i * pixelWidth  + pixelWidth  / 2) 
                                   (fromIntegral j * pixelHeight + pixelHeight / 2) $
@@ -385,7 +385,7 @@ drawWindow state
                       ]
     pixelWidth      = fromIntegral $ fst pixelSize
     pixelHeight     = fromIntegral $ snd pixelSize
-                      
+
     canvasSizeText = let (width, height) = areaSize (area state)
                      in
                      Scale 0.2 0.2 (Text (show width ++ "x" ++ show height))
@@ -441,12 +441,12 @@ readImageFile forcePalette fname
     maxX        = fst initialCanvasSize - 1
     maxY        = snd initialCanvasSize - 1
     emptyCanvas = listArray ((0, 0), (maxX, maxY)) (repeat transparent)
-    
+
     quads :: [a] -> [[a]]
     quads []             = []
     quads (x:y:z:v:rest) = [x, y, z, v] : quads rest
     quads l              = [l]
-                       
+
     averageAt image (i, j)
       -- = clipColour $ image ! (i * fst pixelSize + fst pixelSize `div` 2, 
       --                         j * snd pixelSize + snd pixelSize `div` 2)
@@ -472,7 +472,7 @@ canvasToImage canvas area
   where
     (canvasWidth, canvasHeight) = areaSize area
     ((minX, minY), _)           = area
-    
+
     imageWidth        = canvasWidth  * fst pixelSize
     imageHeight       = canvasHeight * snd pixelSize
 
@@ -504,21 +504,21 @@ clipColour col
   | otherwise   = makeColor red' green' blue' alpha'
   where
     (red, green, blue, alpha) = rgbaOfColor col
-    
+
     black                                  = averageBrightness [red, green, blue] < 0.15
     transparent                            = alpha < 0.25
     alpha' | alpha >= 0.25 && alpha < 0.75 = 0.5
            | otherwise                     = 1
-    
+
     bright = averageBrightness [red, green, blue] >= 0.55
     red'   = clip red
     green' = clip green
     blue'  = clip blue
-    
+
     averageBrightness cols = sum significantCols / fromIntegral (length significantCols)
       where
         significantCols = [col | col <- cols, col >= 0.15]
-    
+
     clip c | c < 0.15           = 0
            | bright && c < 0.70 = 0.6
            | bright && c < 0.90 = 0.8
@@ -631,7 +631,7 @@ resize ((dminX, dminY), (dmaxX, dmaxY)) state
     (width,    height)           = areaSize (area state)
     (newWidth, newHeight)        = areaSize newArea
     canvasArea                   = bounds (canvas state)
-    
+
     newArea       = ((minX + dminX, minY + dminY), (maxX + dmaxX, maxY + dmaxY))
     newCanvasArea = canvasArea `unionArea` newArea
 
@@ -686,17 +686,17 @@ main
         { putStrLn "BigPixel: image file must have suffix '.bmp'"
         ; exitFailure
         }
-    
+
     ; when forcePalette $
         putStrLn "WARNING: --force-palette needs to be adapted to the latest palette"
-    
+
         -- Read the image from the given file, or yield an empty canvas
     ; (canvas, image) <- readImageFile forcePalette fname
-    
+
         -- Initialise the application state
     ; let state             = initialState fname canvas image
           initialWindowSize = windowSize state
-    
+
        -- Enter the event loop
     ; playIO (InWindow "BigPixel" (round (fst initialWindowSize), round (snd initialWindowSize))
         (100, 50)) white fps state
